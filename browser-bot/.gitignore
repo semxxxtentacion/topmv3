@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Logs
+logs/
+*.log
+
+# Runtime
+pids/
+
+# Generated data
+generated_profiles/
+
+# Proxies & IPs (secrets)
+proxies.txt
+ips.txt
+
+# Environment
+.env
+
+# macOS
+.DS_Store
