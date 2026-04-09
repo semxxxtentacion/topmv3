@@ -8,6 +8,7 @@ defineProps<{
     google: boolean
     yandex: boolean
     keywords_selection: boolean
+    total_visits?: number | null
   }
   editSaving: boolean
   citySearch: string
@@ -25,7 +26,7 @@ defineEmits<{
 
 <template>
   <div class="mt-4 bg-slate-50 rounded-xl p-5 space-y-4">
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div>
         <label class="block text-xs text-slate-500 mb-1">Сайт</label>
         <input
@@ -69,6 +70,15 @@ defineEmits<{
             Ничего не найдено
           </div>
         </div>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-500 mb-1">Переходов всего (на проект)</label>
+        <input
+          v-model.number="editForm.total_visits"
+          type="number"
+          placeholder="Например: 1000"
+          class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+        />
       </div>
     </div>
 

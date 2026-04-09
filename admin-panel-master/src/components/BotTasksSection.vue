@@ -9,6 +9,7 @@ defineProps<{
 
 defineEmits<{
   addTask: []
+  autoGenerate: []
   togglePause: [task: BotTask]
   deleteTask: [taskId: number]
 }>()
@@ -21,12 +22,20 @@ defineEmits<{
         Задачи бота
         <span class="text-slate-400 font-normal">({{ tasks.length }})</span>
       </h4>
-      <button
-        @click="$emit('addTask')"
-        class="px-3 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 cursor-pointer"
-      >
-        Добавить задачу
-      </button>
+      <div class="flex gap-2">
+        <button
+          @click="$emit('autoGenerate')"
+          class="px-3 py-1 text-xs bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 cursor-pointer"
+        >
+          Авто-генерация
+        </button>
+        <button
+          @click="$emit('addTask')"
+          class="px-3 py-1 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 cursor-pointer"
+        >
+          Добавить задачу
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="text-xs text-slate-400">

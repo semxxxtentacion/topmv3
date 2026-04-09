@@ -32,7 +32,8 @@ coverage
 # Cypress
 /cypress/videos/
 /cypress/screenshots/
-
+CLAUDE.md
+PLAN.md
 # Vitest
 __screenshots__/
 

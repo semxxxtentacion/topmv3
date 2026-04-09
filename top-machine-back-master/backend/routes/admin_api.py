@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
+import random
 
 from backend.middleware.admin_auth import get_current_admin, require_role
 from backend.db.admin_queries import (
@@ -23,6 +24,7 @@ from backend.db.admin_queries import (
     get_bot_tasks_by_application,
     get_bot_task_by_id,
     create_bot_task,
+    create_bot_tasks_batch,
     update_bot_task_pause,
     update_bot_task_proxy,
     delete_bot_task,
@@ -64,6 +66,7 @@ class UpdateProjectRequest(BaseModel):
     google: Optional[bool] = None
     yandex: Optional[bool] = None
     keywords_selection: Optional[bool] = None
+    total_visits: Optional[int] = None
 
 class CreateProjectProxyRequest(BaseModel):
     proxy_url: str
@@ -376,6 +379,41 @@ async def add_bot_task(
         proxy_url=proxy_url,
     )
     return dict(task)
+
+
+@router.post("/applications/{app_id}/bot-tasks/auto-generate")
+async def auto_generate_bot_tasks(
+    app_id: int,
+    admin: dict = Depends(get_current_admin),
+):
+    app = await get_application_detail(app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    if not app["keywords"] or not app.get("total_visits") or not app["site"]:
+        raise HTTPException(status_code=400, detail="У проекта не заполнены ключевые фразы, сайт или общее число переходов")
+
+    lines = [l.strip() for l in app["keywords"].split("\n") if l.strip()]
+    if not lines:
+        raise HTTPException(status_code=400, detail="Список фраз пуст")
+
+    proxies = await get_project_proxies(app_id)
+    if not proxies:
+        raise HTTPException(status_code=400, detail="Сначала добавьте прокси к проекту")
+
+    tasks_count = len(lines)
+    total_per_task = app["total_visits"] // tasks_count
+
+    if total_per_task < 1:
+        raise HTTPException(status_code=400, detail="Общее число переходов слишком мало для такого количества фраз")
+
+    tasks_data = []
+    for kw in lines:
+        p = random.choice(proxies)
+        tasks_data.append((app_id, app["site"], kw, 2, total_per_task, p["proxy_url"]))
+
+    await create_bot_tasks_batch(tasks_data)
+    return {"status": "ok", "count": tasks_count}
 
 
 @router.patch("/bot-tasks/{task_id}/pause")

@@ -301,7 +301,7 @@ async def get_client_payments(client_id: int) -> list[asyncpg.Record]:
 
 
 async def admin_update_application(app_id: int, **fields) -> asyncpg.Record | None:
-    allowed = {"site", "region", "region_id", "keywords", "audit", "google", "yandex", "keywords_selection"}
+    allowed = {"site", "region", "region_id", "keywords", "audit", "google", "yandex", "keywords_selection", "total_visits"}
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not updates:
         return await get_application_detail(app_id)
@@ -381,6 +381,19 @@ async def create_bot_task(
             RETURNING *
             """,
             application_id, target_site, keyword, daily_visit_target, total_visit_target, proxy_url,
+        )
+
+
+async def create_bot_tasks_batch(tasks_data: list[tuple]) -> None:
+    """Пакетное создание задач"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.executemany(
+            """
+            INSERT INTO bot_tasks (application_id, target_site, keyword, daily_visit_target, total_visit_target, proxy_url)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            """,
+            tasks_data
         )
 
 

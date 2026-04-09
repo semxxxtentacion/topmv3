@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List
 from backend.config import settings
-from backend.db.queries import deduct_user_balance, get_user_by_id, get_user_applications, create_application, get_keywords_by_project_id, delete_project
+from backend.db.queries import deduct_user_balance, get_user_by_id, get_user_applications, create_application, get_keywords_by_project_id, delete_project, get_application_by_id, get_user_balance
 from backend.middleware.auth import get_current_user_id
 from backend.services.topvizard import TopVizardService
 import json
@@ -68,23 +68,33 @@ async def receive_site(
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
     keywords_count = len([k for k in body.keywords.strip().splitlines() if k.strip()]) if body.keywords else 0
+
+    # Проверяем, хватает ли баланса ДО создания заявки и списания
     if keywords_count > 0:
-        success = await deduct_user_balance(user_id, amount=keywords_count)
-        if not success:
+        balance = await get_user_balance(user_id)
+        if balance is None or balance < keywords_count:
             raise HTTPException(status_code=402, detail="Недостаточно средств на балансе")
 
     safe_site = _normalize_site(body.site)[:50]
     request = await create_application(
-                    user_id=user_id,
-                    site=safe_site,
-                    region=body.region,
-                    region_id=body.region_id,
-                    audit=body.audit,
-                    keywords_selection=body.keywords_selection,
-                    google=body.google,
-                    yandex=body.yandex,
-                    keywords=body.keywords,
-                )
+        user_id=user_id,
+        site=safe_site,
+        region=body.region,
+        region_id=body.region_id,
+        audit=body.audit,
+        keywords_selection=body.keywords_selection,
+        google=body.google,
+        yandex=body.yandex,
+        keywords=body.keywords,
+    )
+
+    # Списание — после успешного создания заявки; атомарный deduct на случай гонки
+    if keywords_count > 0:
+        success = await deduct_user_balance(user_id, amount=keywords_count)
+        if not success:
+            # компенсация: откатываем созданную заявку
+            await delete_project(request["id"])
+            raise HTTPException(status_code=402, detail="Недостаточно средств на балансе")
 
     top_vizard = TopVizardService(request)
     await top_vizard.start_push_service()
@@ -137,15 +147,24 @@ class RemoveRequest(BaseModel):
     topvizard_id: int
 
 @router.delete('/{project_id}')
-async def remove_project(project_id: int, body: RemoveRequest):
+async def remove_project(
+    project_id: int,
+    body: RemoveRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    project = await get_application_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if project["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Недостаточно прав для удаления проекта")
+
     url = f"{settings.URL_topvisor_url}{settings.URL_del_projects_2_projects}"
-    print([int(body.topvizard_id)])
-    payload ={
+    payload = {
         "fields": ['id'],
         "filters": [
             {
                 "name": "id",
-                "operator":"EQUALS",
+                "operator": "EQUALS",
                 "values": [int(body.topvizard_id)]
             }
         ]
@@ -157,7 +176,7 @@ async def remove_project(project_id: int, body: RemoveRequest):
             data = await response.json()
             if data:
                 await delete_project(project_id)
-            return { "message": "OK"}
+            return {"message": "OK"}
     except aiohttp.ClientError as e:
-        logger.error(e)
-        raise HTTPException(status_code=503, detail=f"Ошибка удаления проекта: {e}")
+        logger.error(f"Ошибка удаления проекта в Topvisor: {e}")
+        raise HTTPException(status_code=503, detail="Сервис временно недоступен, попробуйте позже")

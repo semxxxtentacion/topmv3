@@ -23,6 +23,7 @@ export interface Application {
   keywords_selection: boolean
   client_email: string | null
   created_at: string
+  total_visits: []
 }
 
 export interface Payment {

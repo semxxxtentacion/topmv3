@@ -4,8 +4,28 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List
 from backend.config import settings
-from backend.db.queries import update_keywords_for_project, delete_keywords_by_id, upsert_keywords_for_project, deduct_user_balance
+from backend.db.queries import update_keywords_for_project, delete_keywords_by_id, upsert_keywords_for_project, deduct_user_balance, get_application_by_id, get_application_by_topvizard_id, get_user_balance
 from backend.middleware.auth import get_current_user_id
+
+
+async def _assert_app_owned_by_id(application_id: int, user_id: int):
+    """Проверяет, что заявка существует и принадлежит вызывающему юзеру (по внутреннему id)."""
+    project = await get_application_by_id(application_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if project["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Недостаточно прав для этого проекта")
+    return project
+
+
+async def _assert_app_owned_by_topvizard(topvizard_project_id: int, user_id: int):
+    """Проверяет владельца по topvisor project_id."""
+    project = await get_application_by_topvizard_id(topvizard_project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    if project["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Недостаточно прав для этого проекта")
+    return project
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +42,8 @@ async def update_keywords(
     body: ApplicationRequest,
     user_id: int = Depends(get_current_user_id),
 ):
+    await _assert_app_owned_by_topvizard(body.project_id, user_id)
+
     url = f"{settings.URL_topvisor_url}{settings.URL_edit_keywords_2_keywords_rename}"
     payload = {
         "project_id": body.project_id,
@@ -57,11 +79,18 @@ async def add_keywords(
     body: AddKeywordsRequest,
     user_id: int = Depends(get_current_user_id),
 ):
+    # Проверяем владельца по обеим сущностям, чтобы нельзя было подсунуть чужой topvisor id
+    await _assert_app_owned_by_id(body.application_id, user_id)
+    await _assert_app_owned_by_topvizard(body.project_id, user_id)
+
     add_url = f"{settings.URL_topvisor_url}{settings.URL_add_keywords_2_keywords_import}"
     get_url = f"{settings.URL_topvisor_url}{settings.URL_get_keywords_2_keywords}"
 
     keywords_count = len([k for k in body.keywords.strip().splitlines() if k.strip()])
     if keywords_count > 0:
+        balance = await get_user_balance(user_id)
+        if balance is None or balance < keywords_count:
+            raise HTTPException(status_code=402, detail="Недостаточно средств на балансе")
         success = await deduct_user_balance(user_id, amount=keywords_count)
         if not success:
             raise HTTPException(status_code=402, detail="Недостаточно средств на балансе")
@@ -126,6 +155,8 @@ async def remove_keywords(
     body: DeleteKeywordApplicationHandler,
     user_id: int = Depends(get_current_user_id),
 ):
+    await _assert_app_owned_by_topvizard(body.project_id, user_id)
+
     url = f"{settings.URL_topvisor_url}{settings.URL_del_keywords_2_keywords}"
     payload = {
         "project_id": body.project_id,

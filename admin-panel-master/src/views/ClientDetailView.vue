@@ -12,22 +12,41 @@ import ProjectProxiesSection from '@/components/ProjectProxiesSection.vue'
 import BotTasksSection from '@/components/BotTasksSection.vue'
 import BotTaskNewForm from '@/components/BotTaskNewForm.vue'
 import PaymentsTable from '@/components/PaymentsTable.vue'
+import api from '@/api/client'
 
 const route = useRoute()
 const clientId = Number(route.params.id)
 
 const {
-  client, applications, payments, loading,
-  cities, citySearch, sortedCities,
-  editingId, editForm, editSaving,
-  loadClient, deleteClient, deleteApplication, sendReset, startEdit, selectCity, saveEdit,
+  client,
+  applications,
+  payments,
+  loading,
+  cities,
+  citySearch,
+  sortedCities,
+  editingId,
+  editForm,
+  editSaving,
+  loadClient,
+  deleteClient,
+  deleteApplication,
+  sendReset,
+  startEdit,
+  selectCity,
+  saveEdit,
 } = useClientDetail(clientId)
 
 const {
-  botTasks, botTasksLoading,
-  showNewTaskForm, newTaskForm,
+  botTasks,
+  botTasksLoading,
+  showNewTaskForm,
+  newTaskForm,
   loadBotTasks,
-  openNewTaskForm, createBotTask, togglePause, deleteTask,
+  openNewTaskForm,
+  createBotTask,
+  togglePause,
+  deleteTask,
 } = useBotTasks()
 
 const {
@@ -53,6 +72,26 @@ const { notify } = useNotify()
 function copyText(text: string) {
   navigator.clipboard.writeText(text.trim())
   notify('Скопировано', 'info', 1500)
+}
+
+const handleAutoGenerate = async (appId: number) => {
+  if (
+    !confirm(
+      'Система автоматически создаст задачи для всех ключевых фраз проекта с лимитом 2 захода в день. Продолжить?',
+    )
+  )
+    return
+  try {
+    await api.post(`/applications/${appId}/bot-tasks/auto-generate`)
+    notify('Задачи успешно сгенерированы', 'success', 2000)
+    await loadBotTasks(appId, true)
+  } catch (e: any) {
+    notify(
+      e.response?.data?.detail || 'Ошибка при генерации задач',
+      'error',
+      3000,
+    )
+  }
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -107,11 +146,14 @@ onUnmounted(() => {
         @delete-client="deleteClient"
       />
 
-      <!-- Applications / Projects -->
-      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-6 mb-6">
+      <div
+        class="bg-white rounded-xl border border-slate-100 shadow-sm p-6 mb-6"
+      >
         <h3 class="text-md font-bold text-slate-800 mb-3">
           Проекты
-          <span class="text-slate-400 font-normal">({{ applications.length }})</span>
+          <span class="text-slate-400 font-normal"
+            >({{ applications.length }})</span
+          >
         </h3>
         <div v-if="!applications.length" class="text-sm text-slate-400">
           Нет проектов
@@ -122,19 +164,23 @@ onUnmounted(() => {
           :key="a.id"
           class="border-t border-slate-100 py-4 first:border-0 first:pt-0"
         >
-          <!-- Project row -->
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-4 text-sm">
               <span class="text-slate-400">#{{ a.id }}</span>
               <span class="font-medium">{{ a.site }}</span>
               <span class="text-slate-400">{{ a.region || '—' }}</span>
+              <span class="text-blue-500 text-xs" v-if="a.total_visits"
+                >Всего: {{ a.total_visits }}</span
+              >
               <span
                 class="px-2 py-0.5 rounded-full text-xs font-medium"
                 :class="statusClass(a.status)"
               >
                 {{ statusLabel(a.status) }}
               </span>
-              <span class="text-slate-400 text-xs">{{ a.manager_name || '' }}</span>
+              <span class="text-slate-400 text-xs">{{
+                a.manager_name || ''
+              }}</span>
             </div>
             <div class="flex gap-2">
               <button
@@ -152,7 +198,6 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Inline details -->
           <div class="mt-2 flex flex-wrap gap-3 text-xs text-slate-400">
             <span v-if="a.google">Google</span>
             <span v-if="a.yandex">Yandex</span>
@@ -161,13 +206,14 @@ onUnmounted(() => {
             <span>{{ new Date(a.created_at).toLocaleDateString('ru') }}</span>
           </div>
 
-          <!-- Keywords preview -->
           <div
             v-if="a.keywords && editingId !== a.id"
             class="mt-2 text-sm text-slate-500 bg-slate-50 rounded p-3 max-h-48 overflow-auto space-y-0.5"
           >
             <div
-              v-for="(kw, idx) in a.keywords.split('\n').filter((k: string) => k.trim())"
+              v-for="(kw, idx) in a.keywords
+                .split('\n')
+                .filter((k: string) => k.trim())"
               :key="idx"
               class="flex items-center gap-1 group"
             >
@@ -177,15 +223,22 @@ onUnmounted(() => {
                 class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-blue-500 transition-opacity cursor-pointer"
                 title="Копировать"
               >
-                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg
+                  class="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
                   <rect x="9" y="9" width="13" height="13" rx="2" />
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  <path
+                    d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                  />
                 </svg>
               </button>
             </div>
           </div>
 
-          <!-- Edit form -->
           <ProjectEditForm
             v-if="editingId === a.id"
             :edit-form="editForm"
@@ -199,7 +252,6 @@ onUnmounted(() => {
             @update:city-search="citySearch = $event"
           />
 
-          <!-- Project Proxies -->
           <ProjectProxiesSection
             :proxies="proxies[a.id] || []"
             :proxy-form-visible="proxyFormVisible === a.id"
@@ -218,10 +270,10 @@ onUnmounted(() => {
             @update:proxy-form-url="proxyFormUrl = $event"
           />
 
-          <!-- Bot Tasks -->
           <BotTasksSection
             :tasks="botTasks[a.id] || []"
             :loading="botTasksLoading[a.id] || false"
+            @auto-generate="handleAutoGenerate(a.id)"
             @add-task="openNewTaskForm(a.id, a)"
             @toggle-pause="togglePause(a.id, $event)"
             @delete-task="deleteTask(a.id, $event)"

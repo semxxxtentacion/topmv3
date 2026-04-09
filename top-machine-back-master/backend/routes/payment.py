@@ -42,7 +42,7 @@ async def pay_init(
     user_id: int = Depends(get_current_user_id)
 ):
     if body.tariff not in TARIFFS:
-        raise HTTPException(status_code=422, detail="Invalid tariff")
+        raise HTTPException(status_code=422, detail="Неверный тариф")
 
     amount = TARIFFS[body.tariff]["amount"]
 
@@ -76,7 +76,7 @@ async def pay_init(
 
                 if resp.status != 200:
                     logger.error(f"Tinkoff error: {data}")
-                    raise HTTPException(status_code=500, detail=data)
+                    raise HTTPException(status_code=502, detail="Платёжный сервис временно недоступен")
 
                 await create_payment(
                     int(data['PaymentId']),
@@ -94,8 +94,8 @@ async def pay_init(
                 }
 
     except aiohttp.ClientError as e:
-        logger.error("Не удалось установить соединение с банком")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Не удалось установить соединение с банком")
+        raise HTTPException(status_code=502, detail="Платёжный сервис временно недоступен")
 
 class RequestCheck(BaseModel):
     payment_id: int
@@ -131,28 +131,28 @@ async def check_payment(body: RequestCheck, user_id: int = Depends(get_current_u
 
                 if resp.status != 200:
                     logger.error(f"Tinkoff error: {data}")
-                    raise HTTPException(status_code=500, detail=data)
+                    raise HTTPException(status_code=502, detail="Платёжный сервис временно недоступен")
 
                 if data.get("Status") == 'CONFIRMED':
                     payment = await get_payment(body.payment_id)
-                    if payment['status'] == 'CONFIRMED':
-                        return {"status": "ok", "message": "Already processed"}
-
                     if not payment:
-                        raise HTTPException(404, "Payment not found")
+                        raise HTTPException(status_code=404, detail="Платёж не найден")
+                    if payment["user_id"] != user_id:
+                        raise HTTPException(status_code=403, detail="Недостаточно прав для этого платежа")
+                    if payment["status"] == 'CONFIRMED':
+                        return {"status": "ok", "message": "Платёж уже обработан"}
+
                     tariff = payment["tariff"]
                     requests = TARIFFS[tariff]["requests"]
-                    await set_user_applications_balance(
-                        user_id,
-                        requests
-                    )
+                    await set_user_applications_balance(user_id, requests)
                     await mark_payment_confirmed(body.payment_id)
+
                 return {
                     "status": "success",
                     "payment_status": data.get("Status"),
-					"PaymentId": data.get('PaymentId')
+                    "PaymentId": data.get('PaymentId'),
                 }
 
     except aiohttp.ClientError as e:
-        logger.error("Ошибка соединения с Tinkoff")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Ошибка соединения с Tinkoff")
+        raise HTTPException(status_code=502, detail="Платёжный сервис временно недоступен")

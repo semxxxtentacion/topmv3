@@ -245,6 +245,24 @@ async def delete_project(project_id: int):
         await conn.execute("DELETE FROM applications WHERE id = $1", project_id)
 
 
+async def get_application_by_id(project_id: int) -> asyncpg.Record | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            "SELECT * FROM applications WHERE id = $1",
+            project_id,
+        )
+
+
+async def get_application_by_topvizard_id(topvizard_id: int) -> asyncpg.Record | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchrow(
+            "SELECT * FROM applications WHERE topvizard_id = $1",
+            str(topvizard_id),
+        )
+
+
 # ──────────────────────────────────────────────
 # Balance
 # ──────────────────────────────────────────────
