@@ -13,6 +13,7 @@ interface EditForm {
   google: boolean
   yandex: boolean
   keywords_selection: boolean
+  total_visits?: number | null
   _region_id?: number
 }
 
@@ -93,6 +94,7 @@ export function useClientDetail(clientId: number) {
       google: app.google ?? false,
       yandex: app.yandex ?? false,
       keywords_selection: app.keywords_selection ?? false,
+      total_visits: app.total_visits ?? null,
     }
   }
 
@@ -118,6 +120,7 @@ export function useClientDetail(clientId: number) {
         google: editForm.value.google,
         yandex: editForm.value.yandex,
         keywords_selection: editForm.value.keywords_selection,
+        total_visits: editForm.value.total_visits ?? null,
       }
       if (regionId) payload.region_id = regionId
 

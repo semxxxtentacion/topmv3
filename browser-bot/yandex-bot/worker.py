@@ -1,26 +1,13 @@
 from __future__ import annotations
 
-"""
-Browser worker: launches Chromium with full profile from DB:
-  - fingerprints → stealth JS + Playwright context
-  - cookies → restored in browser context
-  - localstorage → injected via JS after page load
-  - proxy → via local forwarder (3proxy needs proactive auth)
-  - mouse_config → passed to human module
-
-One profile = one task = one disposable session.
-"""
-
 import asyncio
 import json
 import logging
 from urllib.parse import urlparse
 import sys
 import os
+from pyvirtualdisplay import Display
 
-from playwright.async_api import async_playwright
-
-# Root dir at the END so yandex-bot local modules (warmup, config, etc.) take priority
 _root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root_dir not in sys.path:
     sys.path.append(_root_dir)
@@ -34,12 +21,6 @@ import warmup
 import scenario
 
 logger = logging.getLogger(__name__)
-
-PROXY_CHECK_URL = 'https://ya.ru'
-
-# ---------------------------------------------------------------------------
-# Profile → Playwright context
-# ---------------------------------------------------------------------------
 
 def _is_mobile(profile: dict) -> bool:
     val = profile.get('ismobiledevice')
@@ -162,12 +143,10 @@ def _build_context_options(profile: dict) -> dict:
         'locale': _extract_locale(profile),
         'timezone_id': _extract_timezone(profile),
     }
-
     geo = _extract_geolocation(profile)
     if geo:
         opts['geolocation'] = geo
         opts['permissions'] = ['geolocation']
-
     if _is_mobile(profile) or str(profile.get('platform', '')).lower() == 'android':
         opts['is_mobile'] = True
         opts['has_touch'] = True
@@ -176,12 +155,7 @@ def _build_context_options(profile: dict) -> dict:
             opts['device_scale_factor'] = float(vp['dpr'])
         else:
             opts['device_scale_factor'] = 2.625
-
     return opts
-
-# ---------------------------------------------------------------------------
-# Cookies
-# ---------------------------------------------------------------------------
 
 def _normalize_cookie(c: dict) -> dict | None:
     if not isinstance(c, dict):
@@ -221,7 +195,6 @@ def _normalize_cookie(c: dict) -> dict | None:
 def _prepare_cookies(profile: dict) -> list[dict]:
     raw = profile.get('cookies')
     valid = []
-
     if isinstance(raw, list):
         for c in raw:
             if isinstance(c, dict):
@@ -254,19 +227,13 @@ def _prepare_cookies(profile: dict) -> list[dict]:
                                 if cookie:
                                     valid.append(cookie)
         except (json.JSONDecodeError, TypeError):
-            logger.debug(f"Cookies: failed to parse string (len={len(raw)})")
-
+            pass
     return valid
-
-# ---------------------------------------------------------------------------
-# LocalStorage
-# ---------------------------------------------------------------------------
 
 async def _restore_localstorage(page, profile: dict):
     ls = profile.get('localstorage')
     if not ls:
         return
-
     if isinstance(ls, dict):
         items = ls
     elif isinstance(ls, list):
@@ -276,10 +243,8 @@ async def _restore_localstorage(page, profile: dict):
                 items[str(entry['key'])] = str(entry['value'])
     else:
         return
-
     if not items:
         return
-
     js_items = json.dumps(items, ensure_ascii=False)
     await page.evaluate(f"""(data) => {{
         try {{
@@ -288,21 +253,14 @@ async def _restore_localstorage(page, profile: dict):
             }}
         }} catch(e) {{}}
     }}""", json.loads(js_items))
-    logger.debug(f"Restored {len(items)} localStorage entries")
-
-# ---------------------------------------------------------------------------
-# Proxy parsing
-# ---------------------------------------------------------------------------
 
 def _parse_profile_proxy(profile: dict) -> dict | None:
     raw = profile.get('proxy')
     if not raw or not isinstance(raw, str):
         return None
-
     raw = raw.strip()
     if not raw:
         return None
-
     if raw.startswith('http://') or raw.startswith('socks'):
         parsed = urlparse(raw)
         proxy = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
@@ -310,7 +268,6 @@ def _parse_profile_proxy(profile: dict) -> dict | None:
             proxy["username"] = parsed.username
             proxy["password"] = parsed.password or ''
         return proxy
-
     parts = raw.split(':')
     if len(parts) == 4:
         return {
@@ -320,16 +277,12 @@ def _parse_profile_proxy(profile: dict) -> dict | None:
         }
     if len(parts) == 2:
         return {"server": f"http://{parts[0]}:{parts[1]}"}
-
     return None
 
-# ---------------------------------------------------------------------------
-# Main execute
-# ---------------------------------------------------------------------------
+from playwright.async_api import async_playwright
 
 async def execute(profile: dict, proxy_obj, task: dict) -> dict:
     result = {'status': 'error', 'task': task}
-
     mouse_cfg = profile.get('mouse_config')
     if isinstance(mouse_cfg, dict):
         human.set_mouse_config(mouse_cfg)
@@ -338,7 +291,6 @@ async def execute(profile: dict, proxy_obj, task: dict) -> dict:
 
     proxy_cfg = None
     strategy = 'no_proxy'
-
     if proxy_obj is not None and hasattr(proxy_obj, 'direct_proxy'):
         proxy_cfg = proxy_obj.direct_proxy
         strategy = 'direct'
@@ -351,112 +303,97 @@ async def execute(profile: dict, proxy_obj, task: dict) -> dict:
             proxy_cfg = profile_proxy
             strategy = 'profile'
 
-    async with async_playwright() as pw:
-        launch_args = {
-            'headless': HEADLESS,
-            'slow_mo': SLOW_MO,
-            'args': [
-                '--no-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-infobars',
-                '--no-first-run',
-                '--no-default-browser-check',
-            ],
-        }
-
-        if proxy_cfg:
-            launch_args['proxy'] = proxy_cfg
-            logger.info(f"Proxy ({strategy}): {proxy_cfg['server']}")
-        else:
-            logger.info("No proxy")
-
-        browser = None
+    display = None
+    if sys.platform.startswith('linux'):
         try:
-            try:
-                browser = await pw.chromium.launch(**launch_args)
-            except Exception as launch_err:
-                if 'headless_shell' in str(launch_err) and HEADLESS:
-                    logger.warning("Headless shell not installed, falling back to regular Chromium with --headless flag")
-                    launch_args['headless'] = False
-                    launch_args['args'].insert(0, '--headless')
-                    browser = await pw.chromium.launch(**launch_args)
-                else:
-                    raise
-
-            ctx_opts = _build_context_options(profile)
-            context = await browser.new_context(**ctx_opts)
-            await context.add_init_script(build_stealth_js(profile))
-
-            try:
-                logger.info("Включаем блокировку Яндекс Метрики (stealth_metrika)...")
-                await apply_stealth(context=context)
-            except Exception as e:
-                logger.error(f"Ошибка при включении анти-метрики: {e}")
-
-            cookies = _prepare_cookies(profile)
-            if cookies:
-                try:
-                    await context.add_cookies(cookies)
-                    logger.debug(f"Restored {len(cookies)} cookies")
-                except Exception as e:
-                    logger.debug(f"Cookie restore skipped: {e}")
-
-            page = await context.new_page()
-
-            if proxy_cfg:
-                try:
-                    resp = await page.goto(PROXY_CHECK_URL, wait_until='commit', timeout=30000)
-                    status = resp.status if resp else 'no response'
-                    logger.info(f"Proxy check: status={status}")
-                except Exception as e:
-                    err_str = str(e)
-                    if 'Timeout' in err_str or 'ERR_PROXY' in err_str or 'ERR_TUNNEL' in err_str:
-                        logger.error(f"Proxy check FAILED (proxy dead): {e}")
-                        raise RuntimeError(f"Proxy unreachable: {e}")
-                    logger.warning(f"Proxy check got non-fatal error, retrying: {err_str[:80]}")
-                    try:
-                        resp = await page.goto('https://www.google.com', wait_until='commit', timeout=15000)
-                        logger.info(f"Proxy fallback check OK: status={resp.status if resp else '?'}")
-                    except Exception:
-                        logger.error(f"Proxy check FAILED on fallback too: {e}")
-                        raise RuntimeError(f"Proxy unreachable: {e}")
-
-            ls = profile.get('localstorage')
-            if ls:
-                try:
-                    await page.goto('https://yandex.ru', wait_until='domcontentloaded', timeout=15000)
-                    await _restore_localstorage(page, profile)
-                except Exception as e:
-                    logger.debug(f"localStorage restore skipped: {e}")
-
-            pid = profile.get('pid', '?')
-            logger.info(f"Browser ready: pid={pid}, proxy={strategy}, cookies={len(cookies)}, mobile={profile.get('ismobiledevice')}")
-
-            warmup_count = 0
-            if WARMUP_ENABLED:
-                try:
-                    warmup_count = await warmup.run_warmup(page)
-                except Exception as e:
-                    logger.warning(f"Warmup failed (continuing): {e}")
-
-            result = await asyncio.wait_for(
-                scenario.run(page, task),
-                timeout=TASK_TIMEOUT,
-            )
-            result['warmup_sites'] = warmup_count
-            result['profile_pid'] = pid
-
-        except asyncio.TimeoutError:
-            result = {'status': 'timeout', 'task': task}
-            logger.warning(f"Timeout for task: {task}")
+            display = Display(visible=0, size=(1920, 1080))
+            display.start()
+            logger.info("🖥️ Xvfb started")
         except Exception as e:
-            result = {'status': 'error', 'task': task, 'error': str(e)}
-            logger.error(f"Worker error: {e}", exc_info=True)
-        finally:
-            if browser:
-                await browser.close()
+            logger.error(f"❌ Xvfb error: {e}")
+
+    try:
+        async with async_playwright() as pw:
+            launch_args = {
+                'headless': False,
+                'slow_mo': SLOW_MO,
+                'args': [
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-features=IsolateOrigins,site-per-process',
+                    '--disable-infobars',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                ],
+            }
+            if proxy_cfg:
+                launch_args['proxy'] = proxy_cfg
+            
+            browser = None
+            try:
+                try:
+                    browser = await pw.chromium.launch(**launch_args)
+                except Exception as launch_err:
+                    if 'headless_shell' in str(launch_err):
+                        launch_args['headless'] = False
+                        if '--headless' in launch_args['args']:
+                            launch_args['args'].remove('--headless')
+                        browser = await pw.chromium.launch(**launch_args)
+                    else:
+                        raise
+
+                ctx_opts = _build_context_options(profile)
+                context = await browser.new_context(**ctx_opts)
+                await context.add_init_script(build_stealth_js(profile))
+
+                try:
+                    await apply_stealth(context=context)
+                except Exception as e:
+                    logger.error(f"Stealth metrika error: {e}")
+
+                cookies = _prepare_cookies(profile)
+                if cookies:
+                    try:
+                        await context.add_cookies(cookies)
+                    except Exception:
+                        pass
+
+                page = await context.new_page()
+
+                if profile.get('localstorage'):
+                    try:
+                        # ИЗМЕНЕНО: Ждем только 'commit' (первого ответа сервера), чтобы капча не вызывала Timeout
+                        await page.goto('https://yandex.ru', wait_until='commit', timeout=15000)
+                        await _restore_localstorage(page, profile)
+                    except Exception as e:
+                        logger.debug(f"LocalStorage restore skipped or failed: {e}")
+
+                warmup_count = 0
+                if WARMUP_ENABLED:
+                    try:
+                        warmup_count = await warmup.run_warmup(page)
+                    except Exception:
+                        pass
+
+                result = await asyncio.wait_for(
+                    scenario.run(page, task),
+                    timeout=TASK_TIMEOUT,
+                )
+                result['warmup_sites'] = warmup_count
+                result['profile_pid'] = profile.get('pid', '?')
+
+            except asyncio.TimeoutError:
+                result = {'status': 'timeout', 'task': task}
+            except Exception as e:
+                result = {'status': 'error', 'task': task, 'error': str(e)}
+                logger.error(f"Worker error: {e}")
+            finally:
+                if browser:
+                    await browser.close()
+    finally:
+        if display:
+            display.stop()
 
     return result

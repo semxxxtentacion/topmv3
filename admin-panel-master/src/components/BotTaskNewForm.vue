@@ -1,6 +1,8 @@
 <script setup lang="ts">
-defineProps<{
-  newTaskForm: {
+import { reactive, computed } from 'vue'
+
+const props = defineProps<{
+  initialForm: {
     target_site: string
     keyword: string
     daily_visit_target: number | null
@@ -9,10 +11,21 @@ defineProps<{
   appId: number
 }>()
 
-defineEmits<{
-  createTask: [appId: number]
+const emit = defineEmits<{
+  createTask: [appId: number, form: typeof form]
   cancel: []
 }>()
+
+const form = reactive({
+  target_site: props.initialForm.target_site,
+  keyword: props.initialForm.keyword,
+  daily_visit_target: props.initialForm.daily_visit_target,
+  total_visit_target: props.initialForm.total_visit_target,
+})
+
+const isValid = computed(() =>
+  form.target_site && form.keyword && form.daily_visit_target && form.daily_visit_target > 0 && form.total_visit_target && form.total_visit_target > 0
+)
 </script>
 
 <template>
@@ -23,7 +36,7 @@ defineEmits<{
       <div>
         <label class="block text-xs text-slate-500 mb-1">Целевой сайт</label>
         <input
-          v-model="newTaskForm.target_site"
+          v-model="form.target_site"
           placeholder="example.com"
           class="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
         />
@@ -31,7 +44,7 @@ defineEmits<{
       <div>
         <label class="block text-xs text-slate-500 mb-1">Ключевая фраза</label>
         <input
-          v-model="newTaskForm.keyword"
+          v-model="form.keyword"
           placeholder="купить квартиру москва"
           class="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
         />
@@ -42,7 +55,7 @@ defineEmits<{
       <div>
         <label class="block text-xs text-slate-500 mb-1">Заходов в день</label>
         <input
-          v-model.number="newTaskForm.daily_visit_target"
+          v-model.number="form.daily_visit_target"
           type="number"
           min="1"
           required
@@ -53,7 +66,7 @@ defineEmits<{
       <div>
         <label class="block text-xs text-slate-500 mb-1">Всего визитов (цель)</label>
         <input
-          v-model.number="newTaskForm.total_visit_target"
+          v-model.number="form.total_visit_target"
           type="number"
           min="1"
           required
@@ -69,8 +82,8 @@ defineEmits<{
 
     <div class="flex gap-2">
       <button
-        @click="$emit('createTask', appId)"
-        :disabled="!newTaskForm.target_site || !newTaskForm.keyword || !newTaskForm.daily_visit_target || !newTaskForm.total_visit_target"
+        @click="emit('createTask', appId, form)"
+        :disabled="!isValid"
         class="px-4 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 cursor-pointer"
       >
         Создать задачу

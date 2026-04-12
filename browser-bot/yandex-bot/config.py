@@ -57,3 +57,5 @@ CAPMONSTER_API_KEY = os.getenv('CAPMONSTER_API_KEY', '')
 # --- Logging ---
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FILE = os.getenv('LOG_FILE', str(BASE_DIR / 'yandex_bot.log'))
+BROWSER_TIMEOUT = int(os.getenv('BROWSER_TIMEOUT', '60'))
+PROXY_SERVER = os.getenv('PROXY_SERVER', '')

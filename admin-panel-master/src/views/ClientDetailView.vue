@@ -281,7 +281,7 @@ onUnmounted(() => {
             <BotTaskNewForm
               v-if="showNewTaskForm === a.id"
               :app-id="a.id"
-              :new-task-form="newTaskForm"
+              :initial-form="newTaskForm"
               @create-task="createBotTask"
               @cancel="showNewTaskForm = null"
             />

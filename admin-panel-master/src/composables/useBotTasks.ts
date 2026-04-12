@@ -39,11 +39,16 @@ export function useBotTasks() {
     }
   }
 
-  async function createBotTask(appId: number) {
+  async function createBotTask(appId: number, formData?: { target_site: string; keyword: string; daily_visit_target: number | null; total_visit_target: number | null }) {
+    const form = formData || newTaskForm.value
+    if (!form.target_site || !form.keyword || !form.daily_visit_target || !form.total_visit_target) {
+      notify('Заполните все обязательные поля', 'error')
+      return
+    }
     try {
       const { data } = await api.post(
         `/applications/${appId}/bot-tasks`,
-        newTaskForm.value,
+        form,
       )
       if (!botTasks.value[appId]) botTasks.value[appId] = []
       botTasks.value[appId].unshift(data)

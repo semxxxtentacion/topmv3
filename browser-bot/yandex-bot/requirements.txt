@@ -3,4 +3,6 @@ asyncpg
 python-dotenv
 fastapi
 uvicorn
-aiohttp
+aiohttp==3.9.3
+playwright-stealth
+PyVirtualDisplay==3.0

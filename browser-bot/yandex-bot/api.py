@@ -53,7 +53,7 @@ async def startup():
     logger.info(f"API: {proxy_mgr.count} proxies ready")
 
     import local_proxy
-    base_port = 8000
+    base_port = 18000
     fwd_configs = []
     for i, p in enumerate(proxy_mgr.all_proxies):
         fwd_configs.append({
@@ -180,7 +180,7 @@ async def _run_task(task_id: str, jobs: list[dict]):
                     found_port = None
                     for i, p in enumerate(proxy_mgr.all_proxies):
                         if p.host in raw_proxy:
-                            found_port = 8000 + i
+                            found_port = 18000 + i
                             break
                     
                     if found_port:
@@ -198,7 +198,7 @@ async def _run_task(task_id: str, jobs: list[dict]):
                             local_proxy_cfg = {"server": f"http://{parts[0]}:{parts[1]}"}
                 
                 if not local_proxy_cfg:
-                    base_port = 8000
+                    base_port = 18000
                     local_port = base_port + (idx % max(proxy_mgr.count, 1))
                     local_proxy_cfg = {"server": f"http://127.0.0.1:{local_port}"}
                     logger.info(f"[{task_id}] Используем стандартный туннель: {local_port}")

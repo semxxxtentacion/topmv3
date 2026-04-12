@@ -92,7 +92,7 @@ def _to_playwright(p: dict) -> dict:
     
     # Формируем правильный SOCKS5 словарь
     result = {
-        "server": f"socks5://{ip}:{port}"
+        "server": f"http://{ip}:{port}"
     }
     
     # Добавляем авторизацию, если она есть
