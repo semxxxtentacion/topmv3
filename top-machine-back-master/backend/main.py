@@ -1,10 +1,12 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from backend.db.connection import get_pool, close_pool
-from backend.routes import site, auth, balance, payment, keywords, admin_auth, admin_api,bot_api
+from backend.routes import site, auth, balance, payment, keywords, admin_auth, admin_api,bot_api, partners
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +41,12 @@ app.include_router(keywords.router)
 app.include_router(admin_auth.router)
 app.include_router(admin_api.router)
 app.include_router(bot_api.router)
+app.include_router(partners.public_router)
+app.include_router(partners.admin_router)
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+_STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 @app.get("/health")

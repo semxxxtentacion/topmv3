@@ -24,6 +24,7 @@ export interface Application {
   client_email: string | null
   created_at: string
   total_visits: number | null
+  is_duplicate?: boolean
 }
 
 export interface Payment {
@@ -82,3 +83,20 @@ export interface ProxyResult {
   id: number
   proxy_url: string
 }
+
+export interface Partner {
+  id: number
+  slug: string
+  name: string
+  logo_url: string
+  short_description: string
+  full_description: string
+  website_url: string | null
+  sort_order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type PartnerPayload = Omit<Partner, 'id' | 'created_at' | 'updated_at'>
+

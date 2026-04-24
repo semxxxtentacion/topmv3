@@ -65,6 +65,31 @@ def _build_user_agent(profile: dict) -> str:
             f'AppleWebKit/537.36 (KHTML, like Gecko) '
             f'Chrome/{bv} Safari/537.36')
 
+# --- НОВАЯ ФУНКЦИЯ ДЛЯ ПОДМЕНЫ CLIENT HINTS ---
+def _build_client_hints(profile: dict) -> dict:
+    platform = str(profile.get('platform', 'Windows'))
+    is_mob = _is_mobile(profile)
+    
+    ch_platform = '"Windows"'
+    if 'Android' in platform or is_mob:
+        ch_platform = '"Android"'
+    elif 'Mac' in platform:
+        ch_platform = '"macOS"'
+    elif 'Linux' in platform:
+        ch_platform = '"Linux"'
+        
+    _versions = get_chrome_versions()
+    _default_bv = _versions[0] if _versions else '120.0.0.0'
+    bv = str(profile.get('browser_version', _default_bv))
+    major_version = bv.split('.')[0]
+    
+    return {
+        'sec-ch-ua': f'"Not_A Brand";v="8", "Chromium";v="{major_version}", "Google Chrome";v="{major_version}"',
+        'sec-ch-ua-mobile': '?1' if is_mob else '?0',
+        'sec-ch-ua-platform': ch_platform,
+    }
+# ----------------------------------------------
+
 MOBILE_VIEWPORTS = [
     {'width': 412, 'height': 915},
     {'width': 393, 'height': 873},
@@ -142,6 +167,7 @@ def _build_context_options(profile: dict) -> dict:
         'viewport': _extract_viewport(profile),
         'locale': _extract_locale(profile),
         'timezone_id': _extract_timezone(profile),
+        'extra_http_headers': _build_client_hints(profile) # <-- ПОДКЛЮЧИЛИ ПОДДЕЛКУ ЗАГОЛОВКОВ
     }
     geo = _extract_geolocation(profile)
     if geo:
@@ -326,6 +352,7 @@ async def execute(profile: dict, proxy_obj, task: dict) -> dict:
                     '--disable-infobars',
                     '--no-first-run',
                     '--no-default-browser-check',
+                    '--force-webrtc-ip-handling-policy=disable-non-proxied-udp' # <-- БЛОКИРОВКА УТЕЧКИ IP ПО WEBRTC
                 ],
             }
             if proxy_cfg:
@@ -364,7 +391,6 @@ async def execute(profile: dict, proxy_obj, task: dict) -> dict:
 
                 if profile.get('localstorage'):
                     try:
-                        # ИЗМЕНЕНО: Ждем только 'commit' (первого ответа сервера), чтобы капча не вызывала Timeout
                         await page.goto('https://yandex.ru', wait_until='commit', timeout=15000)
                         await _restore_localstorage(page, profile)
                     except Exception as e:

@@ -26,6 +26,7 @@ const router = createRouter({
         { path: 'applications', name: 'applications', component: () => import('@/views/ApplicationsView.vue') },
         { path: 'team', name: 'team', component: () => import('@/views/TeamView.vue') },
         { path: 'bot-profiles', name: 'bot-profiles', component: () => import('@/views/BotProfilesView.vue') },
+        { path: 'partners', name: 'partners', component: () => import('@/views/PartnersView.vue') },
       ],
     },
   ],

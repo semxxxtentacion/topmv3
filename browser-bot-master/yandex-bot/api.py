@@ -1,5 +1,3 @@
-# Путь: yandex-bot/api.py
-
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +6,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 import json
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -52,21 +51,6 @@ async def startup():
     proxy_mgr.load_all()
     logger.info(f"API: {proxy_mgr.count} proxies ready")
 
-    import local_proxy
-    base_port = 18000
-    fwd_configs = []
-    for i, p in enumerate(proxy_mgr.all_proxies):
-        fwd_configs.append({
-            'local_port': base_port + i,
-            'upstream_host': p.host,
-            'upstream_port': p.port,
-            'username': p.username,
-            'password': p.password,
-        })
-    if fwd_configs:
-        await local_proxy.start_all(fwd_configs)
-        logger.info(f"API: {len(fwd_configs)} local proxy forwarders running")
-
     try:
         db_pool = await create_pool()
         profiles = await get_profiles(db_pool, limit=MAX_WORKERS * 3)
@@ -80,9 +64,6 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    if USE_LOCAL_PROXY:
-        import local_proxy
-        await local_proxy.stop_all()
     if db_pool:
         await db_pool.close()
 
@@ -150,7 +131,6 @@ async def _run_task(task_id: str, jobs: list[dict]):
     async def run_job(idx: int, job: dict):
         try:
             async with semaphore:
-                # 1. Загружаем профиль
                 profile = None
                 if job.get('profile_id'):
                     try:
@@ -173,19 +153,23 @@ async def _run_task(task_id: str, jobs: list[dict]):
                 raw_proxy = job.get('proxy_url')
                 local_proxy_cfg = None
 
+                # 1. Если прокси пришел из админки
                 if raw_proxy and raw_proxy.strip():
                     raw_proxy = raw_proxy.strip()
                     logger.info(f"[{task_id}] Получен прокси из админки: {raw_proxy}")
                     
-                    found_port = None
-                    for i, p in enumerate(proxy_mgr.all_proxies):
-                        if p.host in raw_proxy:
-                            found_port = 18000 + i
-                            break
-                    
-                    if found_port:
-                        local_proxy_cfg = {"server": f"http://127.0.0.1:{found_port}"}
-                        logger.info(f"[{task_id}] Найден локальный туннель для этого прокси на порту: {found_port}")
+                    if "@" in raw_proxy:
+                        if not raw_proxy.startswith("http"):
+                            raw_proxy = f"http://{raw_proxy}"
+                        parsed = urlparse(raw_proxy)
+                        scheme = parsed.scheme if parsed.scheme else "http"
+                        
+                        local_proxy_cfg = {
+                            "server": f"{scheme}://{parsed.hostname}:{parsed.port}"
+                        }
+                        if parsed.username:
+                            local_proxy_cfg["username"] = parsed.username
+                            local_proxy_cfg["password"] = parsed.password or ""
                     else:
                         parts = raw_proxy.replace("http://","").replace("socks5://","").split(':')
                         if len(parts) >= 4:
@@ -197,11 +181,19 @@ async def _run_task(task_id: str, jobs: list[dict]):
                         else:
                             local_proxy_cfg = {"server": f"http://{parts[0]}:{parts[1]}"}
                 
+                # 2. ПРЯМОЕ ПОДКЛЮЧЕНИЕ ПРОКСИ ИЗ ФАЙЛА (ВМЕСТО local_proxy)
                 if not local_proxy_cfg:
-                    base_port = 18000
-                    local_port = base_port + (idx % max(proxy_mgr.count, 1))
-                    local_proxy_cfg = {"server": f"http://127.0.0.1:{local_port}"}
-                    logger.info(f"[{task_id}] Используем стандартный туннель: {local_port}")
+                    if proxy_mgr.count > 0:
+                        p = proxy_mgr.all_proxies[idx % proxy_mgr.count]
+                        local_proxy_cfg = {
+                            "server": f"http://{p.host}:{p.port}"
+                        }
+                        if p.username:
+                            local_proxy_cfg["username"] = p.username
+                            local_proxy_cfg["password"] = p.password
+                        logger.info(f"[{task_id}] Подключаем прямой прокси из файла: {p.host}")
+                    else:
+                        logger.info(f"[{task_id}] Работаем без прокси (файл пуст)")
 
                 result = await browser_worker.execute(profile, local_proxy_cfg, job)
 
@@ -214,7 +206,7 @@ async def _run_task(task_id: str, jobs: list[dict]):
                 state['results'].append(result)
                 
         except Exception as e:
-            logger.error(f"[{task_id}] КРИТИЧЕСКАЯ ОШИБКА в задаче: {e}", exc_info=True)
+            logger.error(f"[{task_id}] КРИТИЧЕСКАЯ ОШИБКА: {e}", exc_info=True)
             state['done'] += 1
             state['errors'] += 1
 

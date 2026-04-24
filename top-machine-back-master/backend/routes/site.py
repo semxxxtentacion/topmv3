@@ -69,6 +69,13 @@ async def receive_site(
 
     keywords_count = len([k for k in body.keywords.strip().splitlines() if k.strip()]) if body.keywords else 0
 
+    # Без ключей можно только если включён автоподбор. Иначе — 422.
+    if keywords_count == 0 and not body.keywords_selection:
+        raise HTTPException(
+            status_code=422,
+            detail="Укажите ключевые слова или включите автоматический подбор",
+        )
+
     # Проверяем, хватает ли баланса ДО создания заявки и списания
     if keywords_count > 0:
         balance = await get_user_balance(user_id)
@@ -96,8 +103,11 @@ async def receive_site(
             await delete_project(request["id"])
             raise HTTPException(status_code=402, detail="Недостаточно средств на балансе")
 
-    top_vizard = TopVizardService(request)
-    await top_vizard.start_push_service()
+    # Topvisor-пуш только если есть реальные ключи. При keywords_selection=true
+    # без ключей — ждём пока юзер/админ подберёт, отдельный flow.
+    if keywords_count > 0:
+        top_vizard = TopVizardService(request)
+        await top_vizard.start_push_service()
 
     return {"status": "ok"}
 

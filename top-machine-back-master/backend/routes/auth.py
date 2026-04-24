@@ -1,6 +1,10 @@
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 
+from backend.config import settings
 from backend.db.queries import get_user_by_id, update_user_profile
 from backend.middleware.auth import get_current_user_id
 from backend.services.auth import email_auth, yandex_auth
@@ -39,6 +43,9 @@ class MessageResponse(BaseModel):
 
 class YandexAuthRequest(BaseModel):
     access_token: str
+
+class YandexCodeExchangeRequest(BaseModel):
+    code: str
 
 class UpdateProfileRequest(BaseModel):
     first_name: str | None = None
@@ -85,9 +92,33 @@ async def login(body: LoginRequest):
 
 @router.post("/yandex", response_model=AuthTokenResponse)
 async def yandex_login(body: YandexAuthRequest):
-    """Вход через Яндекс OAuth. Принимает access_token от Яндекс."""
+    """legacy: SDK flow (implicit grant). Принимает access_token от Яндекс JSAPI."""
     try:
         result = await yandex_auth.login(access_token=body.access_token)
+        return AuthTokenResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/yandex/authorize")
+async def yandex_authorize():
+    """Server-side OAuth flow: 302 redirect на страницу согласия Яндекса."""
+    if not settings.yandex_client_id:
+        raise HTTPException(status_code=503, detail="Яндекс OAuth не настроен")
+    params = {
+        "response_type": "code",
+        "client_id": settings.yandex_client_id,
+        "redirect_uri": settings.yandex_redirect_uri,
+    }
+    url = f"https://oauth.yandex.ru/authorize?{urlencode(params)}"
+    return RedirectResponse(url=url, status_code=302)
+
+
+@router.post("/yandex/exchange", response_model=AuthTokenResponse)
+async def yandex_exchange(body: YandexCodeExchangeRequest):
+    """Server-side OAuth flow: обмен authorization code на JWT."""
+    try:
+        result = await yandex_auth.exchange_code(body.code)
         return AuthTokenResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

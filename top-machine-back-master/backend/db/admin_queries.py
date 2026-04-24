@@ -186,7 +186,14 @@ async def get_all_applications(
             return await conn.fetch(
                 """
                 SELECT a.*, u.email as client_email, u.name as client_name,
-                       am.name as manager_name
+                       am.name as manager_name,
+                       EXISTS (
+                         SELECT 1 FROM applications a2
+                         WHERE a2.id != a.id
+                           AND a2.user_id IS DISTINCT FROM a.user_id
+                           AND a2.site IS NOT NULL AND a2.site != ''
+                           AND normalize_site(a2.site) = normalize_site(a.site)
+                       ) AS is_duplicate
                 FROM applications a
                 LEFT JOIN users u ON a.user_id = u.id
                 LEFT JOIN admin_users am ON a.manager_id = am.id
@@ -200,7 +207,14 @@ async def get_all_applications(
             return await conn.fetch(
                 """
                 SELECT a.*, u.email as client_email, u.name as client_name,
-                       am.name as manager_name
+                       am.name as manager_name,
+                       EXISTS (
+                         SELECT 1 FROM applications a2
+                         WHERE a2.id != a.id
+                           AND a2.user_id IS DISTINCT FROM a.user_id
+                           AND a2.site IS NOT NULL AND a2.site != ''
+                           AND normalize_site(a2.site) = normalize_site(a.site)
+                       ) AS is_duplicate
                 FROM applications a
                 LEFT JOIN users u ON a.user_id = u.id
                 LEFT JOIN admin_users am ON a.manager_id = am.id
@@ -213,7 +227,14 @@ async def get_all_applications(
         return await conn.fetch(
             """
             SELECT a.*, u.email as client_email, u.name as client_name,
-                   am.name as manager_name
+                   am.name as manager_name,
+                   EXISTS (
+                     SELECT 1 FROM applications a2
+                     WHERE a2.id != a.id
+                       AND a2.user_id IS DISTINCT FROM a.user_id
+                       AND a2.site IS NOT NULL AND a2.site != ''
+                       AND normalize_site(a2.site) = normalize_site(a.site)
+                   ) AS is_duplicate
             FROM applications a
             LEFT JOIN users u ON a.user_id = u.id
             LEFT JOIN admin_users am ON a.manager_id = am.id
@@ -244,7 +265,14 @@ async def get_application_detail(app_id: int) -> asyncpg.Record | None:
         return await conn.fetchrow(
             """
             SELECT a.*, u.email as client_email, u.name as client_name,
-                   am.name as manager_name
+                   am.name as manager_name,
+                   EXISTS (
+                     SELECT 1 FROM applications a2
+                     WHERE a2.id != a.id
+                       AND a2.user_id IS DISTINCT FROM a.user_id
+                       AND a2.site IS NOT NULL AND a2.site != ''
+                       AND normalize_site(a2.site) = normalize_site(a.site)
+                   ) AS is_duplicate
             FROM applications a
             LEFT JOIN users u ON a.user_id = u.id
             LEFT JOIN admin_users am ON a.manager_id = am.id
@@ -269,6 +297,36 @@ async def assign_manager(app_id: int, manager_id: int) -> asyncpg.Record | None:
         return await conn.fetchrow(
             "UPDATE applications SET manager_id = $1 WHERE id = $2 RETURNING *",
             manager_id, app_id,
+        )
+
+
+async def get_duplicate_applications() -> list[asyncpg.Record]:
+    """
+    Возвращает все заявки, чей нормализованный сайт встречается минимум у 2 разных user_id.
+    Сортировка: site_norm, затем created_at — удобно для группировки на стороне Python.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            """
+            WITH norm AS (
+              SELECT id, user_id, site, status, created_at,
+                     normalize_site(site) AS site_norm
+              FROM applications
+              WHERE site IS NOT NULL AND site != ''
+            ),
+            dup_sites AS (
+              SELECT site_norm FROM norm
+              GROUP BY site_norm
+              HAVING COUNT(DISTINCT user_id) >= 2
+            )
+            SELECT n.id, n.user_id, n.site, n.site_norm, n.status, n.created_at,
+                   u.email AS client_email, u.name AS client_name
+            FROM norm n
+            JOIN dup_sites ds ON ds.site_norm = n.site_norm
+            LEFT JOIN users u ON u.id = n.user_id
+            ORDER BY n.site_norm, n.created_at
+            """
         )
 
 

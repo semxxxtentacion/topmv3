@@ -111,7 +111,14 @@ class TopVizardService:
 
                 get_group_id.raise_for_status()
                 get_id_group = await get_group_id.json()
-                group_id = get_id_group['result'][0]["id"]
+                groups = (get_id_group or {}).get("result") or []
+                if not groups:
+                    logger.warning(
+                        "Topvisor вернул пустой список групп для project_id=%s — пропускаем keywords import",
+                        project_id,
+                    )
+                    return
+                group_id = groups[0]["id"]
 
                 
                 get_resp = await session.post(

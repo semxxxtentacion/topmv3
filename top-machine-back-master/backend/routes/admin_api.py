@@ -15,6 +15,7 @@ from backend.db.admin_queries import (
     get_all_applications,
     get_applications_count,
     get_application_detail,
+    get_duplicate_applications,
     update_application_status,
     assign_manager,
     admin_update_application,
@@ -163,6 +164,32 @@ async def list_applications(
     apps = await get_all_applications(limit, offset, status)
     total = await get_applications_count(status)
     return {"items": [dict(a) for a in apps], "total": total}
+
+
+@router.get("/applications/duplicates")
+async def list_duplicate_applications(admin: dict = Depends(get_current_admin)):
+    """
+    Возвращает группы дублей: один и тот же нормализованный сайт у двух и более разных user_id.
+    Каждая группа содержит список всех заявок с этим сайтом (включая повторы одного user_id).
+    """
+    rows = await get_duplicate_applications()
+
+    groups: dict[str, dict] = {}
+    for r in rows:
+        site_norm = r["site_norm"]
+        if site_norm not in groups:
+            groups[site_norm] = {"site_norm": site_norm, "applications": []}
+        groups[site_norm]["applications"].append({
+            "id": r["id"],
+            "user_id": r["user_id"],
+            "site": r["site"],
+            "status": r["status"],
+            "client_email": r["client_email"],
+            "client_name": r["client_name"],
+            "created_at": r["created_at"],
+        })
+
+    return {"items": list(groups.values()), "total": len(groups)}
 
 
 @router.get("/applications/{app_id}")

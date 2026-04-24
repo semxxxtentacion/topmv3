@@ -58,7 +58,18 @@ function goToClient(userId: number) {
             <td class="px-4 py-3 text-blue-500">
               {{ a.client_email || '—' }}
             </td>
-            <td class="px-4 py-3">{{ a.site }}</td>
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-2">
+                <span>{{ a.site }}</span>
+                <span
+                  v-if="a.is_duplicate"
+                  class="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-500"
+                  title="Этот сайт зарегистрирован у нескольких пользователей"
+                >
+                  Дубль
+                </span>
+              </div>
+            </td>
             <td class="px-4 py-3">{{ a.region || '—' }}</td>
             <td class="px-4 py-3">
               <span class="px-2 py-0.5 rounded-full text-xs font-medium" :class="statusClass(a.status)">

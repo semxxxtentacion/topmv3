@@ -1,5 +1,6 @@
 import httpx
 
+from backend.config import settings
 from backend.db.queries import (
     get_user_by_yandex_id,
     get_user_by_email,
@@ -10,12 +11,38 @@ from backend.middleware.auth import create_access_token
 from backend.services.auth.base import AuthProvider
 
 YANDEX_USER_INFO_URL = "https://login.yandex.ru/info"
+YANDEX_TOKEN_URL = "https://oauth.yandex.ru/token"
 
 
 class YandexAuthProvider(AuthProvider):
 
     async def register(self, **kwargs):
         raise NotImplementedError
+
+    async def exchange_code(self, code: str) -> dict:
+        """Server-side OAuth flow: обмен authorization code на access_token, затем login()."""
+        if not (settings.yandex_client_id and settings.yandex_client_secret):
+            raise ValueError("Яндекс OAuth не настроен")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            token_resp = await client.post(
+                YANDEX_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "client_id": settings.yandex_client_id,
+                    "client_secret": settings.yandex_client_secret,
+                },
+            )
+        if token_resp.status_code != 200:
+            raise ValueError("Не удалось обменять код Яндекса")
+
+        token_data = token_resp.json()
+        yandex_access_token = token_data.get("access_token")
+        if not yandex_access_token:
+            raise ValueError("Яндекс не вернул access_token")
+
+        return await self.login(access_token=yandex_access_token)
 
     async def login(self, access_token: str) -> dict:
         # 1. Запрос к Яндекс API за профилем

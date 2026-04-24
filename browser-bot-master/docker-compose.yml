@@ -18,7 +18,7 @@ services:
       timeout: 3s
       retries: 10
 
-  # --- API server + warmup scheduler (Генератор профилей) ---
+  # --- Генератор профилей ---
   app:
     build: .
     restart: unless-stopped
@@ -28,20 +28,12 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: 'postgresql+asyncpg://${DB_USERNAME}:${DB_PASSWORD}@db:5432/acc_generator'
-      # Profile limit
-      MAX_PROFILES: ${MAX_PROFILES:-1500}
-      # Warmup settings
-      WARMUP_INTERVAL_HOURS: ${WARMUP_INTERVAL_HOURS:-8}
-      WARMUP_BATCH_SIZE: ${WARMUP_BATCH_SIZE:-20}
-      WARMUP_WORKERS: ${WARMUP_WORKERS:-3}
-      # Proxy (asocks file)
-      PROXY_FILE: ${PROXY_FILE:-proxies.txt}
-      # Legacy 3proxy (optional)
-      PROXY_HOST: ${PROXY_HOST:-}
-      PROXY_PORT_FIRST: ${PROXY_PORT_FIRST:-0}
-      PROXY_PORT_LAST: ${PROXY_PORT_LAST:-0}
-      PROXY_USER: ${PROXY_USER:-}
-      PROXY_PASS: ${PROXY_PASS:-}
+      MAX_PROFILES: 750
+      WARMUP_ENABLED: "true"
+      WARMUP_INTERVAL_HOURS: 24
+      WARMUP_BATCH_SIZE: 10
+      WARMUP_WORKERS: 1
+      PROXY_FILE: proxies.txt
     ports:
       - '${API_PORT:-8001}:8000'
     volumes:
@@ -49,7 +41,7 @@ services:
       - ./proxies.txt:/app/proxies.txt:ro
     shm_size: '2gb'
 
-  # --- Yandex Bot (воркер ПФ) ---
+  # --- Воркер ПФ (Бот) ---
   yandex-bot:
     build:
       context: ./yandex-bot
@@ -59,7 +51,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: 'postgresql+asyncpg://${DB_USERNAME}:${DB_PASSWORD}@db:5432/acc_generator'
-      PROXY_FILE: ${PROXY_FILE:-proxies.txt}
+      PROXY_FILE: proxies.txt
       MAX_WORKERS: ${MAX_WORKERS:-5}
       API_PORT: 8082
       HEADLESS: "true"
@@ -70,7 +62,7 @@ services:
       - ./yandex-bot/stealth_metrika.py:/app/stealth_metrika.py:ro
     shm_size: '2gb'
 
-  # --- Диспетчер задач (Связь с бэкендом) ---
+  # --- Диспетчер задач ---
   dispatcher:
     build:
       context: ./yandex-bot

@@ -19,6 +19,7 @@ const nav = [
   { to: '/clients', label: 'Клиенты', icon: '👥' },
   { to: '/team', label: 'Команда', icon: '🛡️' },
   { to: '/bot-profiles', label: 'Профили бота', icon: '🤖' },
+  { to: '/partners', label: 'Партнёры', icon: '🤝' },
 ]
 </script>
 

@@ -20,21 +20,26 @@ class TaskResultRequest(BaseModel):
 async def get_next_task(token: str = Depends(verify_bot_token)):
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # Обнуляем счетчики если наступил новый день
         await conn.execute("""
             UPDATE bot_tasks
             SET daily_visit_count = 0, last_reset_date = CURRENT_DATE
             WHERE last_reset_date < CURRENT_DATE
         """)
 
-        # Ищем задачу с учетом новых колонок из миграции 012
         task = await conn.fetchrow("""
             SELECT id, target_site, keyword, proxy_url
             FROM bot_tasks
             WHERE is_paused = FALSE
               AND successful_visits < total_visit_target
               AND daily_visit_count < daily_visit_target
-              AND (last_run_at IS NULL OR last_run_at < NOW() - INTERVAL '15 minutes')
+              AND (
+                  last_run_at IS NULL 
+                  OR 
+                  last_run_at < CURRENT_TIMESTAMP - GREATEST(
+                      INTERVAL '3 minutes',
+                      ((DATE_TRUNC('day', CURRENT_TIMESTAMP) + INTERVAL '1 day') - CURRENT_TIMESTAMP) / NULLIF(daily_visit_target - daily_visit_count, 0)
+                  )
+              )
             ORDER BY last_run_at ASC NULLS FIRST
             LIMIT 1
         """)
@@ -42,8 +47,7 @@ async def get_next_task(token: str = Depends(verify_bot_token)):
         if not task:
             return {"status": "empty"}
 
-        # Обновляем время, чтобы бот не взял эту же задачу мгновенно
-        await conn.execute("UPDATE bot_tasks SET last_run_at = NOW() WHERE id = $1", task["id"])
+        await conn.execute("UPDATE bot_tasks SET last_run_at = CURRENT_TIMESTAMP WHERE id = $1", task["id"])
         
         return {"status": "ok", "task": dict(task)}
 

@@ -23,3 +23,12 @@ ips.txt
 
 # macOS
 .DS_Store
+venv/
+*.log
+__pycache__/
+.env
+yandex-bot/venv/
+*.log
+__pycache__/
+.env
+node_modules/

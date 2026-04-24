@@ -3,3 +3,5 @@ __pycache__
 
 req.json
 CLAUDE.md
+.env
+.env.local
