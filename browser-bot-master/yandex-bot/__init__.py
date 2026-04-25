@@ -1,1 +1,0 @@
-# Yandex PF Bot package

@@ -1,8 +1,0 @@
-playwright==1.49.1
-asyncpg
-python-dotenv
-fastapi
-uvicorn
-aiohttp==3.9.3
-playwright-stealth
-PyVirtualDisplay==3.0
