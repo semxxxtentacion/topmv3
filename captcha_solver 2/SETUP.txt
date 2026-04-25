@@ -1,0 +1,208 @@
+CAPTCHA-SOLVER v2 — установка и подключение
+=============================================
+
+ИЗМЕНЕНИЯ ПО СРАВНЕНИЮ С v1
+---------------------------
+
+Починено и добавлено:
+
+1. Поддержка классической Yandex CheckboxCaptcha (тип "yandex_classic")
+   — раньше возвращался type=none, solved=true, token="" (баг).
+   Теперь полноценно проходит фазу 1 (клик "Я не робот") и фазу 2
+   (silhouette task: найти силуэты на главной картинке и кликнуть в порядке).
+
+2. Поддержка промежуточного редиректа /showcaptchafast → /showcaptcha
+   (Яндекс делает JS-редирект, раньше solver не дожидался его и видел
+   пустую страницу).
+
+3. Новый эндпойнт POST /solve_image — stateless, парсер сам ловит капчу
+   и шлёт нам только картинки. Возвращаем координаты. Парсер кликает
+   в СВОЕЙ сессии — cookies остаются у него, Яндекс пропускает.
+
+4. Селектор кнопки "Отправить" разделён с кнопкой "Обновить картинку"
+   (раньше брали первую видимую, иногда жали обновление вместо submit).
+
+5. Парсер координат поддерживает новый JSON-формат от Rucaptcha
+   (раньше падал на "cannot parse coordinate chunk").
+
+6. Дамп каждой капчи в data/captcha_dumps/<timestamp>/ —
+   body.png, instructions.png, comment.txt, coords.json, PASSED.png/FAILED.png.
+
+7. Модуль captcha_solver/stealth.py — anti-detect утилиты для парсера
+   (см. STEALTH_GUIDE.md).
+
+
+КАК ПОДКЛЮЧИТЬ В ВАШ ПАРСЕР
+---------------------------
+
+Есть ДВА пути в зависимости от того есть у вас свой Playwright/Selenium
+парсер или нет.
+
+
+ПУТЬ A — у вас уже есть свой парсер с Playwright/Selenium (РЕКОМЕНДУЕТСЯ)
+------------------------------------------------------------------------
+
+Используйте новый эндпойнт POST /solve_image. Парсер сам ловит капчу,
+снимает screenshot нужных областей, шлёт нам только картинки, мы возвращаем
+координаты. Парсер сам кликает.
+
+Преимущества:
+  - Один браузер, одна сессия (cookies остаются у парсера)
+  - Быстро (4-5 сек на одну капчу вместо 30-60)
+  - Яндекс не привязывает спецкуки к чужому fingerprint солвера
+
+Запросы и ответы:
+
+  POST http://localhost:8080/solve_image
+  Content-Type: application/json
+
+  {
+    "body_b64": "<base64 PNG главной картинки где надо кликать>",
+    "instructions_b64": "<base64 PNG нижней панели с эталоном>",  // optional
+    "comment": "Yandex SmartCaptcha silhouette task. Найдите силуэты...",
+    "min_clicks": 1,
+    "max_clicks": 8
+  }
+
+  -> 200:
+  {
+    "solved": true,
+    "coordinates": [{"x": 280, "y": 55}, {"x": 66, "y": 131}, ...],
+    "duration_seconds": 4.4,
+    "error": ""
+  }
+
+Готовый пример работы парсера на Playwright смотри в файле
+e2e_yandex_parser_v2.py — это наш тестовый парсер, прошёл 5 страниц
+выдачи Яндекса с автоматическим прохождением капчи.
+
+Кратко логика:
+  1. Парсер открывает yandex.ru/search/?text=...
+  2. Если URL содержит showcaptcha — это капча
+  3. Парсер кликает чекбокс #js-button.CheckboxCaptcha-Button
+  4. Если появилась картинка .AdvancedCaptcha-ImageWrapper — фаза 2:
+     - Снять screenshot .AdvancedCaptcha-ImageWrapper -> body_b64
+     - Снять screenshot .AdvancedCaptcha-SilhouetteTask -> instructions_b64
+     - POST /solve_image -> получить coords
+     - Кликать в окне по координатам (с пересчётом в абс. координаты)
+     - Жать button.CaptchaButton.CaptchaButton_view_action (НЕ _view_clear!)
+  5. Если капча прошла - продолжать парсинг
+
+
+ПУТЬ B — у вас нет своего браузера, нужно "под ключ"
+----------------------------------------------------
+
+Используйте старый эндпойнт POST /solve. Передаёте URL — мы открываем
+свой Chromium, проходим капчу, возвращаем cookies + token. Подходит для
+SmartCaptcha (с sitekey) — там работает 100%. Для классической
+CheckboxCaptcha может работать хуже из-за привязки к fingerprint.
+
+  POST http://localhost:8080/solve
+  Content-Type: application/json
+
+  {"url": "https://ya.ru/showcaptcha?cc=1&..."}
+
+  -> 200:
+  {
+    "type": "click" | "yandex_classic" | "coordinate" | "none",
+    "solved": true,
+    "token": "dD0xNzc...",      // только для click (SmartCaptcha с sitekey)
+    "coordinates": [...],        // для coordinate
+    "cookies": [...],            // для yandex_classic — ИНЖЕКТИТЬ в свой контекст!
+    "final_url": "...",
+    "duration_seconds": 47.3,
+    "error": ""
+  }
+
+
+РАЗВЁРТЫВАНИЕ
+-------------
+
+1. Распакуйте архив:
+   unzip captcha_solver_v2.zip
+   cd captcha_solver
+
+2. Создайте .env:
+   cp .env.example .env
+
+3. Откройте .env, впишите свой ключ от Rucaptcha (rucaptcha.com, регистрация
+   платная ~100 ₽ для тестов, потом ~50-150 ₽ за 1000 решений):
+
+   CAPTCHA_API_KEY=ваш_ключ
+   CAPTCHA_SERVICE_HOST=rucaptcha.com
+   HEADLESS=true
+   PORT=8080
+
+4. Запустите через Docker:
+   docker compose up -d --build
+
+5. Проверьте:
+   curl http://localhost:8080/healthz
+   -> {"status":"ok"}
+
+
+СТАТИСТИКА И СТОИМОСТЬ
+----------------------
+
+Расход на Rucaptcha:
+  - Простой клик "Я не робот" (фаза 1) — 0 ₽ (кликаем сами)
+  - Эскалация до картинки (фаза 2) — ~0.16 ₽ за решение
+
+Что вы платите зависит от того как часто Яндекс эскалирует.
+Для одного "горячего" IP без прокси — 50-80% запросов с эскалацией.
+Для "холодного" IP с резидентным прокси — 5-15%.
+
+На 10 000 запросов:
+  - Без anti-detect и без прокси: ~1500 ₽ на Rucaptcha
+  - С anti-detect и резидентным прокси: ~100-200 ₽
+
+
+КАК СНИЗИТЬ ЧАСТОТУ КАПЧИ
+-------------------------
+
+См. подробный гайд STEALTH_GUIDE.md. Кратко:
+
+  1. Использовать резидентные/мобильные прокси (главный фактор, x3-5)
+  2. Подключить наш модуль captcha_solver/stealth.py:
+     from captcha_solver.stealth import make_stealthy_context, human_pacing, warm_up
+  3. Сохранять storage_state между запусками парсера
+  4. Имитировать ввод запроса в поле поиска (а не goto на /search?text=)
+  5. Случайные паузы 3-7 сек между запросами + движения мыши
+
+С полным набором: 0-2 капчи на 100 запросов.
+
+
+ФАЙЛЫ В АРХИВЕ
+--------------
+
+captcha_solver/        — Python пакет (ядро)
+  stealth.py           — anti-detect утилиты для подключения в парсере
+  solver.py            — детектор и решатель капчи
+  two_captcha.py       — клиент Rucaptcha API (legacy + v2)
+  api/rest.py          — FastAPI с /solve и /solve_image
+  api/grpc_server.py   — gRPC сервер
+  browser.py           — Playwright контекст с anti-detect
+  config.py, cli.py, __main__.py
+
+tests/                  — 11 unit-тестов (запуск: pytest)
+proto/captcha.proto     — gRPC контракт
+Dockerfile              — образ
+docker-compose.yml      — запуск одной командой
+pyproject.toml          — зависимости
+
+README.md               — оригинальная документация
+INTEGRATION.md          — детальные примеры интеграции в код
+STEALTH_GUIDE.md        — гайд по снижению частоты капчи (НОВОЕ)
+SETUP.txt               — этот файл
+e2e_yandex_parser_v2.py — пример парсера который ловит капчу и шлёт в /solve_image
+.env.example            — шаблон переменных окружения
+
+
+ПОДДЕРЖКА
+---------
+
+Если что-то не так:
+  - В data/captcha_dumps/<timestamp>/ лежат точные картинки которые мы
+    отправляли в Rucaptcha + ответы. Покажите их если нужно разобрать.
+  - Логи solver: docker compose logs -f
+  - Если Яндекс изменил селекторы DOM — пишите, доточим за 30 минут.

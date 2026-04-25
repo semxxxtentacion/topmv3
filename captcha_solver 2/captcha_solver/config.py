@@ -22,6 +22,8 @@ class Settings(BaseSettings):
 
     headless: bool = True
     http_proxy: str = ""
+    keep_open_seconds: int = Field(0, ge=0, le=120, description="Wait N seconds before closing browser (debug)")
+    disable_stealth: bool = Field(False, description="Turn off anti-detect — guarantees Yandex shows the captcha (debug)")
 
 
 @lru_cache

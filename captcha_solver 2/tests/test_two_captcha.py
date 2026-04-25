@@ -40,6 +40,31 @@ async def test_solve_yandex_smart_happy_path() -> None:
     assert calls == ["/in.php", "/res.php"]
 
 
+async def test_solve_text_image_returns_recognised_text() -> None:
+    """Yandex classic CheckboxCaptcha image OCR — method=base64 without coordinatescaptcha."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("in.php"):
+            body = dict(p.split("=", 1) for p in request.content.decode().split("&"))
+            seen.update(body)
+            assert body["method"] == "base64"
+            assert "coordinatescaptcha" not in body  # text mode, NOT coordinate
+            assert body["language"] == "2"           # Russian
+            assert body["regsense"] == "1"           # case-sensitive
+            return httpx.Response(200, json={"status": 1, "request": "9001"})
+        if request.url.path.endswith("res.php"):
+            return httpx.Response(200, json={"status": 1, "request": "Привет42"})
+        return httpx.Response(404)
+
+    client = TwoCaptchaClient("k", poll_interval=0, poll_max_tries=2)
+    async with _mock_client(handler) as hc:
+        text = await client.solve_text_image("BASE64_IMG", client=hc)
+
+    assert text == "Привет42"
+    assert seen["body"] == "BASE64_IMG"
+
+
 async def test_solve_yandex_smart_polls_until_ready() -> None:
     state = {"calls": 0}
 

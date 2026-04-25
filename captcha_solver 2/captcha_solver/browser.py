@@ -1,9 +1,14 @@
-"""Playwright browser lifecycle — isolated per solve request."""
+"""Playwright browser lifecycle — isolated per solve request.
+
+Why a fresh context per request: Yandex correlates sessions across Yandex ID
+services. A long-lived browser would accumulate a fingerprint that SmartCaptcha
+uses to decide whether to show the coordinate (hard) variant. Ephemeral contexts
+keep each solve independent.
+"""
 from __future__ import annotations
 
 import logging
 import random
-import urllib.parse
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -35,24 +40,28 @@ _BLOCK_PATTERNS = [
     "**/*appsflyer*",
 ]
 
+
 @asynccontextmanager
 async def browser_page(
     *,
     headless: bool = True,
     proxy: str = "",
+    disable_stealth: bool = False,
 ) -> AsyncIterator[Page]:
-    """Yield a fresh Playwright Page with anti-detection and Yandex trackers blocked."""
+    """Yield a fresh Playwright Page with anti-detection and Yandex trackers blocked.
+
+    `disable_stealth=True` switches off all evasion — useful for testing the solver
+    against Yandex captcha (with full stealth Yandex often skips the captcha).
+    """
+    args = [] if disable_stealth else [
+        "--disable-blink-features=AutomationControlled",
+        "--disable-features=IsolateOrigins,site-per-process",
+        "--disable-webrtc",
+    ]
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--disable-webrtc",
-            ],
-        )
+        browser = await pw.chromium.launch(headless=headless, args=args)
         try:
-            context = await _new_context(browser, proxy=proxy)
+            context = await _new_context(browser, proxy=proxy, disable_stealth=disable_stealth)
             try:
                 page = await context.new_page()
                 yield page
@@ -61,7 +70,8 @@ async def browser_page(
         finally:
             await browser.close()
 
-async def _new_context(browser, *, proxy: str) -> BrowserContext:
+
+async def _new_context(browser, *, proxy: str, disable_stealth: bool = False) -> BrowserContext:
     width, height = random.choice(_VIEWPORTS)
     kwargs = dict(
         viewport={"width": width, "height": height},
@@ -69,21 +79,11 @@ async def _new_context(browser, *, proxy: str) -> BrowserContext:
         locale="ru-RU",
         timezone_id="Europe/Moscow",
     )
-    
     if proxy:
-        # ИСПРАВЛЕНИЕ: Правильный парсинг прокси с логином и паролем для Playwright
-        parsed = urllib.parse.urlparse(proxy)
-        if parsed.username and parsed.password:
-            kwargs["proxy"] = {
-                "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-                "username": parsed.username,
-                "password": parsed.password,
-            }
-        else:
-            kwargs["proxy"] = {"server": proxy}
-            
+        kwargs["proxy"] = {"server": proxy}
     context = await browser.new_context(**kwargs)
-    await context.add_init_script(_ANTI_DETECT_INIT)
-    for pattern in _BLOCK_PATTERNS:
-        await context.route(pattern, lambda route: route.abort())
+    if not disable_stealth:
+        await context.add_init_script(_ANTI_DETECT_INIT)
+        for pattern in _BLOCK_PATTERNS:
+            await context.route(pattern, lambda route: route.abort())
     return context

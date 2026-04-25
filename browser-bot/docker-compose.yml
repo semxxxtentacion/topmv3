@@ -41,15 +41,6 @@ services:
       - ./proxies.txt:/app/proxies.txt:ro
     shm_size: '2gb'
 
-  # --- Модуль решения капчи ---
-  captcha-solver:
-    build: ./captcha-solver
-    restart: unless-stopped
-    env_file: ./captcha-solver/.env
-    shm_size: '2gb' # Важно: чтобы браузер внутри не падал
-    ports:
-      - "8080:8080"
-
   # --- Воркер ПФ (Бот) ---
   yandex-bot:
     build:
@@ -58,15 +49,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      captcha-solver:
-        condition: service_started
     environment:
       DATABASE_URL: 'postgresql+asyncpg://${DB_USERNAME}:${DB_PASSWORD}@db:5432/acc_generator'
       PROXY_FILE: proxies.txt
-      MAX_WORKERS: 1 # Пока тестируем на одном прокси, лучше оставить 1
+      MAX_WORKERS: ${MAX_WORKERS:-5}
       API_PORT: 8082
       HEADLESS: "true"
-      CAPTCHA_SOLVER_URL: "http://captcha-solver:8080" # Правильный адрес внутри Docker-сети
     ports:
       - '127.0.0.1:8082:8082'
     volumes:
