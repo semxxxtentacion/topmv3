@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package captcha;
+
+service CaptchaSolver {
+  rpc Solve (SolveRequest) returns (SolveResponse);
+  rpc Healthz (HealthzRequest) returns (HealthzResponse);
+}
+
+enum CaptchaType {
+  CAPTCHA_TYPE_UNSPECIFIED = 0;
+  CAPTCHA_TYPE_NONE = 1;
+  CAPTCHA_TYPE_CLICK = 2;
+  CAPTCHA_TYPE_COORDINATE = 3;
+}
+
+message SolveRequest {
+  string url = 1;
+  CaptchaType force_type = 2;  // optional; UNSPECIFIED = auto-detect
+}
+
+message Coordinate {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+message SolveResponse {
+  CaptchaType type = 1;
+  bool solved = 2;
+  string token = 3;
+  repeated Coordinate coordinates = 4;
+  double duration_seconds = 5;
+  string error = 6;
+}
+
+message HealthzRequest {}
+
+message HealthzResponse {
+  string status = 1;
+}

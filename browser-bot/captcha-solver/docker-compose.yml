@@ -1,0 +1,15 @@
+services:
+  captcha-rest:
+    build: .
+    env_file: .env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  captcha-grpc:
+    build: .
+    env_file: .env
+    command: python -m captcha_solver.api.grpc_server
+    ports:
+      - "50051:50051"
+    restart: unless-stopped
