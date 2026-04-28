@@ -1,8 +1,13 @@
 import re
 from playwright.async_api import BrowserContext, Page
 
+# Умный JS-блокер: он сам проверяет, где находится
 METRIKA_JS_BLOCK = """
 (function() {
+    // ЕСЛИ МЫ НА КАПЧЕ - ВЫКЛЮЧАЕМ БЛОКИРОВКУ (иначе Яндекс нас не пустит)
+    if (window.location.href.includes('showcaptcha')) {
+        return; 
+    }
 
     // 1. Подменяем window.ym на пустышку
     window.ym = function() {};
@@ -65,31 +70,35 @@ METRIKA_JS_BLOCK = """
 })();
 """
 
-
 async def apply_stealth(context: BrowserContext = None, page: Page = None):
     """
-    Блокирует Яндекс Метрику на уровне сети и JS.
-    Вызвать один раз после создания context или page.
-
-    Использование с context (рекомендуется):
-        context = await browser.new_context(...)
-        await apply_stealth(context=context)
-
-    Использование с page:
-        page = await browser.new_page()
-        await apply_stealth(page=page)
+    Умная блокировка Яндекс Метрики.
+    Пропускает метрику только на страницах с капчей.
     """
     if context is None and page is None:
         raise ValueError("Передайте context или page")
 
     async def block_network(route, request):
         url = request.url
-        referer = request.headers.get("referer", "")
+        
+        # Безопасно получаем URL страницы
+        page_url = ""
+        try:
+            if request.frame and request.frame.page:
+                page_url = request.frame.page.url
+        except:
+            pass
+
+        # ИСКЛЮЧЕНИЕ: Если мы на странице капчи - пропускаем Метрику для сбора мышки
+        if "showcaptcha" in page_url or "smartcaptcha" in url:
+            await route.continue_()
+            return
+
+        # БЛОКИРОВКА: Жестко режем Метрику на поиске и сайтах
         if "mc.yandex" in url or "metrika.yandex" in url:
-            if "yandex.ru" not in referer and "ya.ru" not in referer:
-                print(f"🛑 УБИТ ЗАПРОС К МЕТРИКЕ: {url}")
-                await route.abort()
-                return
+            await route.abort()
+            return
+
         await route.continue_()
 
     if context:

@@ -72,15 +72,22 @@ WebGLRenderingContext.prototype.getParameter = function (p) {
 window.chrome = window.chrome || {runtime: {}};
 """
 
-# Трекеры Яндекса — блокируем чтобы не светить fingerprint в их аналитику
+# Только СТОРОННИЕ трекеры. Яндекс-домены трогать НЕЛЬЗЯ.
+#
+# ВАЖНО (фидбек от продакшна 2026-04):
+# Раньше тут были mc.yandex.ru, an.yandex.ru, metrika, yastatic.net/metrika.
+# Их пришлось убрать — выяснилось что Yandex SmartCaptcha анализирует телеметрию
+# движений мыши, кликов и скроллов которую отправляет Yandex.Metrika (mc.yandex.ru).
+# Если Метрика заблокирована во время капчи — клик по галочке «Я не робот» не
+# подтверждается на серверной стороне, капча не эскалирует до картинок, парсер
+# ловит таймаут. Никогда не блокировать аналитические домены Яндекса при работе
+# с их же капчей.
 _BLOCK_PATTERNS = (
-    "**/*metrika*",
-    "**/*mc.yandex.ru*",
-    "**/*an.yandex.ru*",
-    "**/*adfox*",
-    "**/yastatic.net/metrika*",
     "**/*googletagmanager*",
     "**/*google-analytics*",
+    "**/*doubleclick*",
+    "**/*facebook.net*",
+    "**/*hotjar*",
 )
 
 

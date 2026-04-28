@@ -1,5 +1,4 @@
 services:
-  # --- PostgreSQL ---
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -18,7 +17,6 @@ services:
       timeout: 3s
       retries: 10
 
-  # --- Генератор профилей ---
   app:
     build: .
     restart: unless-stopped
@@ -30,9 +28,6 @@ services:
       DATABASE_URL: 'postgresql+asyncpg://${DB_USERNAME}:${DB_PASSWORD}@db:5432/acc_generator'
       MAX_PROFILES: 750
       WARMUP_ENABLED: "true"
-      WARMUP_INTERVAL_HOURS: 24
-      WARMUP_BATCH_SIZE: 10
-      WARMUP_WORKERS: 1
       PROXY_FILE: proxies.txt
     ports:
       - '${API_PORT:-8001}:8000'
@@ -41,31 +36,38 @@ services:
       - ./proxies.txt:/app/proxies.txt:ro
     shm_size: '2gb'
 
-  # --- Воркер ПФ (Бот) ---
+  captcha-solver:
+    build: ./captcha-solver
+    restart: unless-stopped
+    env_file: ./captcha-solver/.env
+    shm_size: '2gb'
+    ports:
+      - "8080:8080"
+
   yandex-bot:
-    build:
-      context: ./yandex-bot
+    build: ./yandex-bot
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      captcha-solver:
+        condition: service_started
     environment:
       DATABASE_URL: 'postgresql+asyncpg://${DB_USERNAME}:${DB_PASSWORD}@db:5432/acc_generator'
       PROXY_FILE: proxies.txt
-      MAX_WORKERS: ${MAX_WORKERS:-5}
+      MAX_WORKERS: 1
       API_PORT: 8082
-      HEADLESS: "true"
+      HEADLESS: "false" 
+      CAPTCHA_SOLVER_URL: "http://captcha-solver:8080"
+      PYTHONUNBUFFERED: "1"
     ports:
       - '127.0.0.1:8082:8082'
     volumes:
       - ./proxies.txt:/app/proxies.txt:ro
-      - ./yandex-bot/stealth_metrika.py:/app/stealth_metrika.py:ro
     shm_size: '2gb'
 
-  # --- Диспетчер задач ---
   dispatcher:
-    build:
-      context: ./yandex-bot
+    build: ./yandex-bot
     restart: unless-stopped
     depends_on:
       db:

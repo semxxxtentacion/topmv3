@@ -13,12 +13,21 @@ import time
 import urllib.request
 from pathlib import Path
 
+# Подключаем пути для импортов
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'yandex-bot'))
 
 from playwright.async_api import async_playwright
 from generator.stealth import build_stealth_js
 from generator import human
 from generator.chrome_versions import get_chrome_versions
+
+# Синхронизация стелс-скриптов с worker.py
+try:
+    from stealth_metrika import apply_stealth
+except ImportError:
+    apply_stealth = None
+    print("⚠️ [FARMER] Не удалось импортировать apply_stealth. Убедитесь в правильности путей.")
 
 logger = logging.getLogger(__name__)
 
@@ -183,10 +192,8 @@ async def _collect_localstorage(page) -> dict:
 
 # --- ОСНОВНАЯ ФУНКЦИЯ СОЗДАНИЯ ПРОФИЛЯ ---
 async def farm_one_profile(profile: dict, proxy_cfg: dict | None = None, headless: bool = True) -> dict:
-    # Семафор гарантирует, что процессы не наложатся друг на друга
     async with _browser_semaphore:
         
-        # 1. Меняем IP перед каждым профилем
         await _change_ip()
         
         pid = profile["pid"]
@@ -200,11 +207,12 @@ async def farm_one_profile(profile: dict, proxy_cfg: dict | None = None, headles
 
         async with async_playwright() as pw:
             launch_args = {
-                "headless": headless,
+                "headless": False, # ❗ СТРОГО FALSE (КАК В WORKER)
                 "args": [
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
+                    "--use-gl=swiftshader", # ❗ ДОБАВЛЕНО ДЛЯ СИНХРОНИЗАЦИИ ОТПЕЧАТКОВ
                     "--disable-blink-features=AutomationControlled",
                     "--disable-features=IsolateOrigins,site-per-process",
                     "--disable-infobars",
@@ -223,9 +231,11 @@ async def farm_one_profile(profile: dict, proxy_cfg: dict | None = None, headles
                 try:
                     browser = await pw.chromium.launch(**launch_args)
                 except Exception as e:
-                    if "headless_shell" in str(e) and headless:
+                    if "headless_shell" in str(e):
+                        # Резервный запуск
                         launch_args["headless"] = False
-                        launch_args["args"].insert(0, "--headless")
+                        if "--headless" not in launch_args["args"]:
+                            launch_args["args"].insert(0, "--headless")
                         browser = await pw.chromium.launch(**launch_args)
                     else: raise
 
@@ -247,6 +257,13 @@ async def farm_one_profile(profile: dict, proxy_cfg: dict | None = None, headles
 
                 context = await browser.new_context(**ctx_opts)
                 await context.add_init_script(build_stealth_js(profile))
+
+                # ❗ СИНХРОНИЗАЦИЯ STEALTH-МЕТРИКИ (КАК В WORKER)
+                if apply_stealth:
+                    try:
+                        await apply_stealth(context=context)
+                    except Exception as e:
+                        logger.error(f"Stealth metrika error: {e}")
 
                 page = await context.new_page()
                 human.set_mouse_config(profile.get("mouse_config"))
@@ -302,7 +319,6 @@ async def farm_one_profile(profile: dict, proxy_cfg: dict | None = None, headles
             finally:
                 if browser: await browser.close()
                 
-                # 2. Охлаждаем систему, чтобы избежать падений Docker
                 logger.info("⏳ [Генератор] Охлаждаем систему 5 секунд перед завершением...")
                 await asyncio.sleep(5)
 
